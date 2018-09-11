@@ -1,0 +1,3 @@
+[submodule "src/deuces"]
+	path = src/deuces
+	url = git@github.com:liona24/deuces.git
