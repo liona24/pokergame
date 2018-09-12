@@ -12,4 +12,4 @@ $ python setup.py install
 
 ## Notes
 
-This framework is based on a fork of Will Drevo's *Deuces*. The original repository can be found [https://github.com/worldveil/deuces](here).
+This framework is based on a fork of Will Drevo's *Deuces*. The original repository can be found [here](https://github.com/worldveil/deuces).
