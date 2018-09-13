@@ -12,23 +12,26 @@ def string_printer(string):
     return printer
 
 
-def bet_round(first_player_idx, players, pot, bet=0):
+def bet_round(first_player_idx, players, board, pot, bet=0):
 
     i = first_player_idx
-
-    raised = (i - 1) % len(players)
+    raised = first_player_idx
+    is_first_round = True
 
     while len(players) > 1:
-        if raised == i:
+        if not is_first_round and raised == i:
             break
+
+        is_first_round = False
 
         p = players[i]
         to_call = bet - p.bet
-        betsize = p.move(players, to_call, pot)
+        betsize = p.move(players, board, to_call, pot)
 
         if betsize < 0:  # fold
             players.remove(p)
             i -= 1
+            raised -= 1
         else:
             assert betsize <= p.stack, 'Player betted more than available!'
             assert betsize >= to_call, 'All-In is not implemented!'
@@ -94,6 +97,8 @@ class Game(object):
         sb = (self.big_blind - 1) % len(self.players)
 
         lst = self.players
+        if bb == 0:
+            return [ lst[-1] ] + lst[:-1]
         return [ lst[sb], lst[bb] ] + lst[bb + 1:] + lst[:bb - 1]
 
     def play(self, dealt_hook=None, flop_hook=None, turn_hook=None,
@@ -149,7 +154,7 @@ class Game(object):
 
             for i, hook, n_dealt in zip(rounds, hooks, n_dealt):
 
-                pot = bet_round(i, players, pot, bet)
+                pot = bet_round(i, players, board, pot, bet)
 
                 if len(players) == 1:
                     p = players[0]
