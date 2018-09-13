@@ -144,6 +144,8 @@ class Game(object):
 
             players[0].bet = self.blinds[0]  # small blind
             players[1].bet = self.blinds[1]  # big blind
+            players[0].stack -= self.blinds[0]  # small blind
+            players[1].stack -= self.blinds[1]  # big blind
 
             if dealt_hook is not None:
                 dealt_hook(players)
