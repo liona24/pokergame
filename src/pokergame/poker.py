@@ -236,6 +236,6 @@ class Game(object):
             if blocking:
                 thread.join()
 
-        thread.run()
+        thread.start()
 
         return request_stop
