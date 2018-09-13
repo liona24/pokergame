@@ -11,7 +11,7 @@ class PlayerBase(object):
         # These properties should be readonly and only altered by the dealer
         #
         # hand  - The players hand cards
-        self.hand = None
+        self.hand = []
         # stack - The total chip count the player has
         self.stack = initstack
         # bet   - The amount the player already put in the pot
