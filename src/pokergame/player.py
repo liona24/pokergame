@@ -36,3 +36,9 @@ class PlayerBase(object):
             return to_call
 
         return -1
+
+    def __repr__(self):
+        return "Player('%s')" % self.name
+
+    def __str__(self):
+        return "Player('%s')" % self.name
