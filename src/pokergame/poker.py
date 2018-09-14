@@ -31,8 +31,9 @@ def bet_round(first_player_idx, players, board, pot, bet=0):
         if betsize < 0:  # fold
             p.hand = []
             players.remove(p)
+            if raised >= i:
+                raised = (raised - 1) % len(players)
             i -= 1
-            raised -= 1
         else:
             assert betsize <= p.stack, 'Player betted more than available!'
             assert betsize >= to_call, 'All-In is not implemented!'
@@ -192,12 +193,17 @@ class Game(object):
 
             yield summary
 
-    def play_async(self, summary_hook=None, dealt_hook=None, flop_hook=None,
-                   turn_hook=None, river_hook=None, winner_hook=None):
+    def play_async(self, game_finished_callback, summary_hook=None,
+                   dealt_hook=None, flop_hook=None, turn_hook=None,
+                   river_hook=None, winner_hook=None):
         """Wrapper around play(..) to start the game loop in its own thread.
 
         All hooks are of signature func(list_of_active_players) -> None
         (except summary_hook)
+
+        Arguments:
+            game_finished_callback {callable} -- A function to be called
+                when the game ends (can be ``None``)
 
         Keyword Arguments:
             summary_hook {callable} -- A function called after each round
@@ -231,6 +237,9 @@ class Game(object):
 
                 if stop_event.is_set():
                     break
+
+            if game_finished_callback is not None:
+                game_finished_callback()
 
         thread = threading.Thread(target=run, daemon=True)
 
