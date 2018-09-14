@@ -29,6 +29,7 @@ def bet_round(first_player_idx, players, board, pot, bet=0):
         betsize = p.move(players, board, to_call, pot)
 
         if betsize < 0:  # fold
+            p.hand = []
             players.remove(p)
             i -= 1
             raised -= 1
@@ -87,7 +88,7 @@ class Game(object):
         Arguments:
             player {player.BasePlayer} -- The player to be removed.
         """
-        self.player.remove(player)
+        self.players.remove(player)
 
     def _order_players(self):
         """Reorders the players according to current big blind position.
