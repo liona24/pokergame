@@ -1,54 +1,97 @@
-import io
 import threading
+from collections import namedtuple, defaultdict
+from functools import reduce
 
 import deuces
 
+RoundSummary = namedtuple('RoundSummary',
+                          'hands_played board players winners blinds')
 
-def string_printer(string):
-
-    def printer(*args, **kvargs):
-        print(*args, **kvargs, file=string)
-
-    return printer
+evaluator = deuces.Evaluator()
 
 
-def bet_round(first_player_idx, players, board, pot, bet=0):
+def distribute_pot(players, board):
+
+    players = set(players)
+    active_players = list(filter(lambda x: not x.has_folded, players))
+    scores = defaultdict(list)
+
+    if not board:
+        assert len(active_players) == 1
+
+    if len(active_players) == 1:
+        scores[0].append(active_players[0])
+    else:
+        for p in active_players:
+            p.hand_score = evaluator.evaluate(p.hand, board)
+            scores[p.hand_score].append(p)
+
+    rv = []
+
+    for score in sorted(scores):
+        winners = filter(lambda x: x.bet > 0, scores[score])
+        winners = sorted(winners, key=lambda x: x.bet)
+        pot = 0
+        for n, winner in enumerate(winners):
+            to_remove = set()
+            winner_bet = winner.bet  # read only copy
+            for p in players:
+                share = min(p.bet, winner_bet)
+                p.bet -= share
+                if p.bet == 0:
+                    to_remove.add(p)
+                pot += share
+
+            players -= to_remove
+
+            winners_share = pot // (len(winners) - n)
+            winner.stack += winners_share
+            rv.append((winner, winners_share))
+            pot -= winners_share
+
+        if not len(players):
+            break
+
+    return rv
+
+
+def bet_round(first_player_idx, players, board, bet, n_left):
 
     i = first_player_idx
     raised = first_player_idx
     is_first_round = True
 
-    while len(players) > 1:
+    while n_left > 1:
         if not is_first_round and raised == i:
             break
 
         is_first_round = False
 
         p = players[i]
-        to_call = bet - p.bet
-        betsize = p.move(players, board, to_call, pot)
+        if not p.is_allin and not p.has_folded:
+            to_call = bet - p.bet
+            betsize = p.move(players, board, to_call)
 
-        if betsize < 0:  # fold
-            p.hand = []
-            players.remove(p)
-            if raised >= i:
-                raised = (raised - 1) % len(players)
-            i -= 1
-        else:
-            assert betsize <= p.stack, 'Player betted more than available!'
-            assert betsize >= to_call, 'All-In is not implemented!'
+            if betsize < 0:  # fold
+                p.hand = []
+                p.has_folded = True
+                n_left -= 1
+            else:
+                assert betsize <= p.stack, 'Player betted more than available!'
 
-            p.bet += betsize
-            p.stack -= betsize
-            pot += betsize
+                if betsize < to_call:
+                    betsize = min(p.stack, to_call)
 
-            if betsize > to_call:
-                raised = i
-                bet += betsize - to_call
+                p.bet += betsize
+                p.stack -= betsize
+
+                if betsize > to_call:
+                    raised = i
+                    bet += betsize - to_call
 
         i = (i + 1) % len(players)
 
-    return pot
+    return bet, n_left
 
 
 class Game(object):
@@ -63,8 +106,6 @@ class Game(object):
         self.hands_played = 0
 
         self.big_blind = 0
-
-        self.evaluator = deuces.Evaluator()
 
     @property
     def num_players(self):
@@ -91,23 +132,11 @@ class Game(object):
         """
         self.players.remove(player)
 
-    def _order_players(self):
-        """Reorders the players according to current big blind position.
-        """
-
-        bb = self.big_blind
-        sb = (self.big_blind - 1) % len(self.players)
-
-        lst = self.players
-        if bb == 0:
-            return [ lst[-1] ] + lst[:-1]
-        return [ lst[sb], lst[bb] ] + lst[bb + 1:] + lst[:bb - 1]
-
     def play(self, dealt_hook=None, flop_hook=None, turn_hook=None,
              river_hook=None, winner_hook=None):
         """Generator to yield hand summaries after playing rounds of poker.
 
-        All hooks are of signature func(list_of_active_players) -> None
+        All hooks are of signature func(the_game_instance) -> None
 
         Keyword Arguments:
             dealt_hook {callable} -- A function called after hands are dealt
@@ -126,79 +155,74 @@ class Game(object):
             if len(self.players) == 1:
                 return
 
-            output = io.StringIO()
-            print_ = string_printer(output)
-
-            print_("Hand #%d\n" % (self.hands_played + 1))
-
             # big blind always position 1
             # small blind always position 0
-            players = self._order_players()
             deck = deuces.Deck()
             board = []
 
-            pot = sum(self.blinds)  # TODO all-in cases
-            bet = self.blinds[1]
+            # create copy of players for this round
+            # this allows adding playing while a round is in progress
+            players = self.players[:]
 
             for player in players:
-                player.hand = deck.draw(2)
-                player.bet = 0
+                player.reset(deck.draw(2))
 
-            players[0].bet = self.blinds[0]  # small blind
-            players[1].bet = self.blinds[1]  # big blind
-            players[0].stack -= self.blinds[0]  # small blind
-            players[1].stack -= self.blinds[1]  # big blind
+            blind_positions = [
+                (self.big_blind - 1) % len(players),
+                self.big_blind
+            ]
+
+            for b, bi in zip(self.blinds, blind_positions):
+                p = players[bi]
+                assert p.stack > 0
+                p.bet = min(p.stack, b)
+                p.stack -= p.bet
+
+            bet = max([ players[i].bet for i in blind_positions ])
 
             if dealt_hook is not None:
-                dealt_hook(players)
+                dealt_hook(self)
 
-            rounds = [ 2 % len(players), 0, 0, 0 ]
+            rounds = [ (blind_positions[1] + 1) % len(players) ] +\
+                [ blind_positions[0] ] * 3
             n_dealt = [ 3, 1, 1, 0 ]  # note the last is dummy
             hooks = [ flop_hook, turn_hook, river_hook, None ]
 
+            n_left = reduce(lambda x, y: x + int(not y.has_folded),
+                            players,
+                            0)
+
             for i, hook, n_dealt in zip(rounds, hooks, n_dealt):
 
-                pot = bet_round(i, players, board, pot, bet)
+                bet, n_left = bet_round(i, players, board, bet, n_left)
 
-                if len(players) == 1:
-                    p = players[0]
-                    p.stack += pot
-                    print_("%s is the winner!" % p.name)
+                if n_left == 1:
                     break
 
                 board.extend(deck.draw(n_dealt))
                 if hook is not None:
-                    hook(players)
+                    hook(self)
 
-                for player in players:
-                    player.bet = 0
-                bet = 0
+            winners = distribute_pot(players, board)
+            players = list(filter(lambda p: p.stack > 0, players))
 
-            if len(players) > 1:
-                winners = self.evaluator.hand_summary(board,
-                                                      players,
-                                                      print=print_)
-                splitpot = pot // len(winners)
-                for winner in winners:
-                    winner.stack += splitpot
-
-            print_("Pot size: %d" % pot)
+            yield RoundSummary(self.hands_played,
+                               board,
+                               players,
+                               winners,
+                               self.blinds)
 
             self.big_blind = (self.big_blind + 1) % len(self.players)
             self.hands_played += 1
             self.blinds = self.blindstep(self.hands_played, self.blinds)
-
-            summary = output.getvalue()
-            output.close()
-
-            yield summary
+            self.players = list(filter(lambda p: p.stack > 0, self.players))
 
     def play_async(self, game_finished_callback, summary_hook=None,
                    dealt_hook=None, flop_hook=None, turn_hook=None,
                    river_hook=None, winner_hook=None):
         """Wrapper around play(..) to start the game loop in its own thread.
 
-        All hooks are of signature func(list_of_active_players) -> None
+        All hooks are of signature func(the_game_instance) -> None
         (except summary_hook)
 
         Arguments:
@@ -207,8 +231,8 @@ class Game(object):
 
         Keyword Arguments:
             summary_hook {callable} -- A function called after each round
-                played (func(str) -> None). This function can be used to
-                process what the generator would have yielded in the single-
+                played (func(RoundSummary) -> None). This function can be used
+                to process what the generator would have yielded in the single-
                 thread case. (default: {None})
             dealt_hook {callable} -- A function called after hands are dealt
                 and blinds are placed. (default: {None})

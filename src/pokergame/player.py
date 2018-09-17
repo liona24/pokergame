@@ -16,12 +16,22 @@ class PlayerBase(object):
         self.stack = initstack
         # bet   - The amount the player already put in the pot
         self.bet = 0
+        # has_folded - Whether the play is still in or not
+        self.has_folded = False
+        # hand_score - The score of the player's last hand (lower is better)
+        self.hand_score = None
+
+    def reset(self, hand):
+        self.hand = hand
+        self.bet = 0
+        self.has_folded = False
+        self.hand_score = None
 
     @property
     def is_allin(self):
-        return self.bet == self.stack
+        return self.stack == 0
 
-    def move(self, players, board, to_call, pot):
+    def move(self, players, board, to_call):
         """Return the betsize:
         If betsize < 0: Fold
         If betsize = to_call: Call
@@ -38,7 +48,9 @@ class PlayerBase(object):
         return -1
 
     def __repr__(self):
-        return "Player('%s')" % self.name
+        return "Player('%s', stack=%d, bet=%d)" %\
+            (self.name, self.stack, self.bet)
 
     def __str__(self):
-        return "Player('%s')" % self.name
+        return "Player('%s', stack=%d, bet=%d)" %\
+            (self.name, self.stack, self.bet)
